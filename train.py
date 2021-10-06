@@ -101,13 +101,15 @@ class BERT_BiLSTM(nn.Module):
 
 def _handle_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', default='data', type=str, required=True, help='Input data directory that contains train.csv and eval.csv')
+    parser.add_argument('--input_dir', default='victim', type=str, required=False, help='Input data directory that contains train.csv and eval.csv')
+    parser.add_argument('--output_dir', default='victim/output', type=str, required=False, help='Output data directory')
     parser.add_argument('--lr', default=1e-4, type=float, required=True, help='learning rate')
     parser.add_argument('--cuda_available', default=True, type=bool, required=False, help='decide whether to use GPU')
     parser.add_argument('--epochs', default=1, type=int, required=False, help='the number of epochs')
     parser.add_argument('--batch_size', default=1, type=int, required=False, help='the number of batches')
     parser.add_argument('--max_seq_length', default=256, type=int, required=False, help='the number of max sequence length')
-    parser.add_argument('--model', default='Linear', type=str, required=False, help='Linear, LSTM, BiLSTM')
+    parser.add_argument('--model_type', default='Linear', type=str, required=False, help='Linear, LSTM, BiLSTM')
+    parser.add_argument('--model', default='', type=str, required=False, help='Linear, LSTM, BiLSTM')
     parser.add_argument('--is_balance', default=True, type=bool, required=False, help='choose to use balance data or unbalanced data')
     return parser.parse_args()
 
@@ -232,7 +234,7 @@ def convert_examples_to_features(x_batch, y_batch, tokenizer, max_seq_length):
     return token_batch, label_batch
 
 
-def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_size, max_seq_length, model_type, lr, epochs):
+def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_size, max_seq_length, model_type, lr, epochs, output_dir):
 
     def _get_prediction(normalized_probs):
         # classify B, I, O based on probabilities
@@ -349,7 +351,7 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
     precision = num_of_tp/(num_of_tp + num_of_fp) if num_of_tp + num_of_fp != 0 else 0
     recall = num_of_tp/(num_of_tp + num_of_fn) if num_of_tp + num_of_fn != 0 else 0
 
-    with open('./data/victim/nodev_{}_{}_{}_{}_{}.txt'.format(model_type, lr, epochs, batch_size, max_seq_length), 'w') as wf:
+    with open(output_dir + '/{}_{}_{}_{}_{}.txt'.format(model_type, lr, epochs, batch_size, max_seq_length), 'w') as wf:
         wf.write('tp: {}\n'.format(num_of_tp))
         wf.write('tn: {}\n'.format(num_of_tn))
         wf.write('fp: {}\n'.format(num_of_fp))
@@ -376,8 +378,6 @@ def get_data(filename, balanced=False):
     texts = df['texts'].tolist()
     labels = df['labels'].tolist()
 
-    # test balanced
-    '''
     if balanced:
         new_texts = list(texts)
         new_labels = list(labels)
@@ -385,7 +385,7 @@ def get_data(filename, balanced=False):
             if 'B-SHOOTER' in label:
                 new_texts += [text] * 9
                 new_labels += [label] * 9
-        return new_texts, new_labels'''
+        return new_texts, new_labels
 
 
     return texts, labels
@@ -394,38 +394,18 @@ def get_data(filename, balanced=False):
 if __name__ == '__main__':
     args = _handle_arguments()
 
-    train_X, train_Y = get_data('victim/new_train.csv', True)
-    dev_X, dev_Y = get_data('victim/new_dev.csv', True)
-    #train_X += dev_X
-    #train_Y += dev_Y
-    model, tokenizer = train(train_X, train_Y, args.lr, args.cuda_available, args.epochs, args.model, args.is_balance, args.batch_size, args.max_seq_length)
-    #model = torch.load('output/model')
-    #tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
+    model = None
+    tokenizer = None
+    if args.model == '':
+        train_X, train_Y = get_data(args.input_dir + '/new_train.csv', args.is_balance)
+        dev_X, dev_Y = get_data(args.input_dir + '/new_dev.csv', args.is_balance)
+        train_X += dev_X
+        train_Y += dev_Y
+        model, tokenizer = train(train_X, train_Y, args.lr, args.cuda_available, args.epochs, args.model_type, args.is_balance, args.batch_size, args.max_seq_length)
+    else:
+        model = torch.load(args.model)
+        tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
 
 
-    test_X, test_Y = get_data('victim/new_test.csv')
-    eval_results = evaluate(model, test_X, test_Y, tokenizer, args.cuda_available, args.batch_size, args.max_seq_length, args.model, args.lr, args.epochs)
-
-
-    # X, Y = get_data('data.csv')
-
-    # kf = KFold(n_splits=5)
-    # for i, (train_index, test_index) in enumerate(kf.split(X)):
-    #     print('Fold', i)
-    #     train_X = [X[i] for i in train_index]
-    #     train_Y = [Y[i] for i in train_index]
-
-    #     test_X = [X[i] for i in test_index]
-    #     test_Y = [Y[i] for i in test_index]
-
-    #     model, tokenizer = train(train_X, train_Y, args.lr, args.cuda_available, args.epochs, args.model, args.is_balance, args.batch_size, args.max_seq_length)
-
-    #     # model = torch.load('output/model')
-    #     # tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
-    #     eval_results = evaluate(model, test_X, test_Y, tokenizer, args.cuda_available, args.batch_size, args.max_seq_length)
-
-    # with open('./data/{}_{}_{}_{}_{}.txt'.format(args.model, args.lr, args.epochs, args.batch_size, args.max_seq_length), 'w') as wf:
-    #     if len(ACCURACY) != 0: wf.write('Avg accuracy: {}\n'.format(sum(ACCURACY)/len(ACCURACY)))
-    #     if len(PRECISION) != 0: wf.write('Avg precision: {}\n'.format(sum(PRECISION)/len(PRECISION)))
-    #     if len(RECALL) != 0: wf.write('Avg recall: {}\n'.format(sum(RECALL)/len(RECALL)))
-    #     if (sum(PRECISION)/len(PRECISION) + sum(RECALL)/len(RECALL)) != 0: wf.write('F1: {}'.format(2 * sum(PRECISION)/len(PRECISION) * sum(RECALL)/len(RECALL) / (sum(PRECISION)/len(PRECISION) + sum(RECALL)/len(RECALL))))
+    test_X, test_Y = get_data(args.input_dir + '/new_test.csv')
+    eval_results = evaluate(model, test_X, test_Y, tokenizer, args.cuda_available, args.batch_size, args.max_seq_length, args.model_type, args.lr, args.epochs, args.output_dir)
