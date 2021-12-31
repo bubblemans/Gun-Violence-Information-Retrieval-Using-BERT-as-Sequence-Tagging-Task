@@ -1,6 +1,6 @@
 # Gun-Violence-Information-Retrieval-Using-BERT-as-Sequence-Tagging-Task
 Code for "Gun Violence News Information Retrieval using BERT as Sequence Tagging Task" (IEEE BigData 2021)
-## Environment
+## Prerequisites
 Besides the packages in the `requirements.txt`, you need `apex`. Please use the following commands.
 ```
 pip install -r requirements.txt
@@ -10,7 +10,7 @@ pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cud
 ```
 
 # Usage
-There are two steps:
+There are three steps:
 1. Structure directories 
 2. Preprocess
 3. Train and evaluate
