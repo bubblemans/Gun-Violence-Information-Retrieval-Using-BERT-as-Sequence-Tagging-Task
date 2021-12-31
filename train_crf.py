@@ -1,34 +1,25 @@
 import argparse
-import os
 import math
+import logging
 
 import pandas as pd
 import tqdm
-
-from sklearn.model_selection import KFold
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
-from transformers import AutoTokenizer
-from tokenizers import pre_tokenizers
-from tokenizers.pre_tokenizers import Whitespace, Digits
+from models import BERT_CRF_Linear, BERT_CRF_LSTM, BERT_CRF_BiLSTM
 
-from torchcrf import CRF
 
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 label_mapping = {
     'B': 0,
     'I': 1,
     'O': 2
 }
-
-ACCURACY = []
-PRECISION = []
-RECALL = []
-
 
 class GunViolenceDataset(Dataset):
     def __init__(self, texts, labels):
@@ -40,158 +31,6 @@ class GunViolenceDataset(Dataset):
 
     def __getitem__(self, index):
         return self.texts[index], self.labels[index]
-
-
-class BERT_Linear(nn.Module):
-    def __init__(self, num_labels):
-        super(BERT_Linear, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
-        config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
-        self.classifier = nn.Linear(768, num_labels)
-
-    def forward(self, tokens_tensor, segments_tensors, labels=None):
-        bert_output = self.bert(tokens_tensor, token_type_ids=segments_tensors)
-        last_hidden_state = bert_output.last_hidden_state
-        pooler_output = bert_output.pooler_output
-
-        logits = self.classifier(last_hidden_state)
-        return logits
-
-
-class BERT_CRF_Linear(nn.Module):
-    def __init__(self, num_labels):
-        super(BERT_CRF_Linear, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
-        config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
-        self.classifier = nn.Linear(768, num_labels)
-        self.CRF_model = CRF(num_labels, batch_first=True)
-
-    def forward(self, tokens_tensor, segments_tensors, labels=None):
-        bert_output = self.bert(tokens_tensor, token_type_ids=segments_tensors)
-        last_hidden_state = bert_output.last_hidden_state
-        pooler_output = bert_output.pooler_output
-
-        logits = self.classifier(last_hidden_state)
-
-        # the CRF layer of NER labels
-        crf_loss_list = self.CRF_model(logits, labels)
-        #crf_loss_list = self.CRF_model(last_hidden_state, labels)
-
-        crf_loss = torch.mean(-crf_loss_list)
-        crf_predict = self.CRF_model.decode(logits)
-
-		# the classifier of category & polarity
-        loss_fct = nn.CrossEntropyLoss()
-        loss = loss_fct(logits.permute(0, 2, 1), labels)
-        return torch.tensor(crf_predict).to('cuda'), logits, loss
-
-
-class BERT_CRF_LSTM(nn.Module):
-    def __init__(self, num_labels):
-        super(BERT_CRF_LSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
-        config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
-        self.lstm = nn.LSTM(768, 768)
-        self.classifier = nn.Linear(768, num_labels)
-        self.CRF_model = CRF(num_labels, batch_first=True)
-
-    def forward(self, tokens_tensor, segments_tensors, labels=None):
-        bert_output = self.bert(tokens_tensor, token_type_ids=segments_tensors)
-        last_hidden_state = bert_output.last_hidden_state
-        pooler_output = bert_output.pooler_output
-
-        lstm_out, _ = self.lstm(last_hidden_state)
-        #logits, _ = self.lstm(last_hidden_state)
-
-        logits = self.classifier(lstm_out)
-
-        # the CRF layer of NER labels
-        crf_loss_list = self.CRF_model(logits, labels)
-        crf_loss = torch.mean(-crf_loss_list)
-        crf_predict = self.CRF_model.decode(logits)
-
-		# the classifier of category & polarity
-        loss_fct = nn.CrossEntropyLoss()
-        loss = loss_fct(logits.permute(0, 2, 1), labels)
-        return torch.tensor(crf_predict).to('cuda'), logits, loss
-
-
-class BERT_LSTM(nn.Module):
-    def __init__(self, num_labels):
-        super(BERT_LSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
-        config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
-        self.lstm = nn.LSTM(768, 768)
-        self.classifier = nn.Linear(768, num_labels)
-
-    def forward(self, tokens_tensor, segments_tensors, labels=None):
-        bert_output = self.bert(tokens_tensor, token_type_ids=segments_tensors)
-        last_hidden_state = bert_output.last_hidden_state
-        pooler_output = bert_output.pooler_output
-
-        lstm_out, _ = self.lstm(last_hidden_state)
-
-        logits = self.classifier(lstm_out)
-        return logits
-
-
-class BERT_BiLSTM(nn.Module):
-    def __init__(self, num_labels):
-        super(BERT_BiLSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
-        config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
-        self.lstm = nn.LSTM(768, 768, bidirectional=True)
-        self.classifier = nn.Linear(768, num_labels)
-        # self.classifier = nn.Linear(768 * 2, num_labels)
-
-    def forward(self, tokens_tensor, segments_tensors, labels=None):
-        bert_output = self.bert(tokens_tensor, token_type_ids=segments_tensors)
-        last_hidden_state = bert_output.last_hidden_state
-        pooler_output = bert_output.pooler_output
-
-        lstm_out, _ = self.lstm(last_hidden_state)
-        lstm_out = lstm_out[:, :, :768] + lstm_out[:, :, 768:]
-
-        logits = self.classifier(lstm_out)
-        return logits
-
-
-class BERT_CRF_BiLSTM(nn.Module):
-    def __init__(self, num_labels):
-        super(BERT_CRF_BiLSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
-        config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
-        self.lstm = nn.LSTM(768, 768, bidirectional=True)
-        self.classifier = nn.Linear(768, num_labels)
-        # self.classifier = nn.Linear(768 * 2, num_labels)
-        self.CRF_model = CRF(num_labels, batch_first=True)
-
-    def forward(self, tokens_tensor, segments_tensors, labels=None):
-        bert_output = self.bert(tokens_tensor, token_type_ids=segments_tensors)
-        last_hidden_state = bert_output.last_hidden_state
-        pooler_output = bert_output.pooler_output
-
-        lstm_out, _ = self.lstm(last_hidden_state)
-        lstm_out = lstm_out[:, :, :768] + lstm_out[:, :, 768:]
-
-        logits = self.classifier(lstm_out)
-
-        # the CRF layer of NER labels
-        crf_loss_list = self.CRF_model(logits, labels)
-        #crf_loss_list = self.CRF_model(lstm_out, labels)
-        crf_loss = torch.mean(-crf_loss_list)
-        crf_predict = self.CRF_model.decode(logits)
-
-		# the classifier of category & polarity
-        loss_fct = nn.CrossEntropyLoss()
-        loss = loss_fct(logits.permute(0, 2, 1), labels)
-        return torch.tensor(crf_predict).to('cuda'), logits, loss
 
 
 def _handle_arguments():
@@ -286,15 +125,10 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
                 num_no_improve += 1
             if num_no_improve > patience:
                 stopping_epoch = epoch
-                print('Early Stop on epoch {} with the best loss {}'.format(stopping_epoch, best_loss))
+                logging.info('Early Stop on epoch {} with the best loss {}'.format(stopping_epoch, best_loss))
                 break
 
     torch.save(model, 'output/model')
-
-    # with open('./data/{}_train_loss.txt'.format(model_type), 'w') as wf:
-    #     for i, loss in losses:
-    #         wf.write(str(i) + ' ' + str(loss) + '\n')
-
     return model, tokenizer, stopping_epoch
 
 
@@ -518,27 +352,3 @@ if __name__ == '__main__':
         args.lr, 
         stopping_epoch
     )
-    # args = _handle_arguments()
-
-    # X, Y = get_data('data.csv')
-
-    # kf = KFold(n_splits=5)
-    # for i, (train_index, test_index) in enumerate(kf.split(X)):
-    #     print('Fold', i)
-    #     train_X = [X[i] for i in train_index]
-    #     train_Y = [Y[i] for i in train_index]
-
-    #     test_X = [X[i] for i in test_index]
-    #     test_Y = [Y[i] for i in test_index]
-
-    #     model, tokenizer = train(train_X, train_Y, args.lr, args.cuda_available, args.epochs, args.model, args.is_balance, args.batch_size, args.max_seq_length)
-
-    #     # model = torch.load('output/model')
-    #     # tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
-    #     eval_results = evaluate(model, test_X, test_Y, tokenizer, args.cuda_available, args.batch_size, args.max_seq_length)
-
-    # with open('./data/crf/{}_{}_{}_{}_{}.txt'.format(args.model, args.lr, args.epochs, args.batch_size, args.max_seq_length), 'w') as wf:
-    #     if len(ACCURACY) != 0: wf.write('Avg accuracy: {}\n'.format(sum(ACCURACY)/len(ACCURACY)))
-    #     if len(PRECISION) != 0: wf.write('Avg precision: {}\n'.format(sum(PRECISION)/len(PRECISION)))
-    #     if len(RECALL) != 0: wf.write('Avg recall: {}\n'.format(sum(RECALL)/len(RECALL)))
-    #     if (sum(PRECISION)/len(PRECISION) + sum(RECALL)/len(RECALL)) != 0: wf.write('F1: {}'.format(2 * sum(PRECISION)/len(PRECISION) * sum(RECALL)/len(RECALL) / (sum(PRECISION)/len(PRECISION) + sum(RECALL)/len(RECALL))))
