@@ -2,14 +2,15 @@ import torch
 import torch.nn as nn
 
 from torchcrf import CRF
+from utils import TRANSFORMER_PATH
 
 
 class BERT_Linear(nn.Module):
     def __init__(self, num_labels):
         super(BERT_Linear, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
+        config = torch.hub.load(TRANSFORMER_PATH, 'config', 'bert-base-cased')
         config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
+        self.bert = torch.hub.load(TRANSFORMER_PATH, 'model', 'bert-base-cased')
         self.classifier = nn.Linear(768, num_labels)
 
     def forward(self, tokens_tensor, segments_tensors, labels=None):
@@ -24,9 +25,9 @@ class BERT_Linear(nn.Module):
 class BERT_LSTM(nn.Module):
     def __init__(self, num_labels):
         super(BERT_LSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
+        config = torch.hub.load(TRANSFORMER_PATH, 'config', 'bert-base-cased')
         config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
+        self.bert = torch.hub.load(TRANSFORMER_PATH, 'model', 'bert-base-cased')
         self.lstm = nn.LSTM(768, 768)
         self.classifier = nn.Linear(768, num_labels)
 
@@ -43,9 +44,9 @@ class BERT_LSTM(nn.Module):
 class BERT_BiLSTM(nn.Module):
     def __init__(self, num_labels):
         super(BERT_BiLSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
+        config = torch.hub.load(TRANSFORMER_PATH, 'config', 'bert-base-cased')
         config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
+        self.bert = torch.hub.load(TRANSFORMER_PATH, 'model', 'bert-base-cased')
         self.lstm = nn.LSTM(768, 768, bidirectional=True)
         self.classifier = nn.Linear(768, num_labels)
         # self.classifier = nn.Linear(768 * 2, num_labels)
@@ -64,9 +65,9 @@ class BERT_BiLSTM(nn.Module):
 class BERT_CRF_Linear(nn.Module):
     def __init__(self, num_labels):
         super(BERT_CRF_Linear, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
+        config = torch.hub.load(TRANSFORMER_PATH, 'config', 'bert-base-cased')
         config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
+        self.bert = torch.hub.load(TRANSFORMER_PATH, 'model', 'bert-base-cased')
         self.classifier = nn.Linear(768, num_labels)
         self.CRF_model = CRF(num_labels, batch_first=True)
 
@@ -79,8 +80,6 @@ class BERT_CRF_Linear(nn.Module):
 
         # the CRF layer of NER labels
         crf_loss_list = self.CRF_model(logits, labels)
-        #crf_loss_list = self.CRF_model(last_hidden_state, labels)
-
         crf_loss = torch.mean(-crf_loss_list)
         crf_predict = self.CRF_model.decode(logits)
 
@@ -93,9 +92,9 @@ class BERT_CRF_Linear(nn.Module):
 class BERT_CRF_LSTM(nn.Module):
     def __init__(self, num_labels):
         super(BERT_CRF_LSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
+        config = torch.hub.load(TRANSFORMER_PATH, 'config', 'bert-base-cased')
         config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
+        self.bert = torch.hub.load(TRANSFORMER_PATH, 'model', 'bert-base-cased')
         self.lstm = nn.LSTM(768, 768)
         self.classifier = nn.Linear(768, num_labels)
         self.CRF_model = CRF(num_labels, batch_first=True)
@@ -106,8 +105,6 @@ class BERT_CRF_LSTM(nn.Module):
         pooler_output = bert_output.pooler_output
 
         lstm_out, _ = self.lstm(last_hidden_state)
-        #logits, _ = self.lstm(last_hidden_state)
-
         logits = self.classifier(lstm_out)
 
         # the CRF layer of NER labels
@@ -124,9 +121,9 @@ class BERT_CRF_LSTM(nn.Module):
 class BERT_CRF_BiLSTM(nn.Module):
     def __init__(self, num_labels):
         super(BERT_CRF_BiLSTM, self).__init__()
-        config = torch.hub.load('huggingface/pytorch-transformers', 'config', 'bert-base-cased')
+        config = torch.hub.load(TRANSFORMER_PATH, 'config', 'bert-base-cased')
         config.max_position_embeddings = 1024
-        self.bert = torch.hub.load('huggingface/pytorch-transformers', 'model', 'bert-base-cased')
+        self.bert = torch.hub.load(TRANSFORMER_PATH, 'model', 'bert-base-cased')
         self.lstm = nn.LSTM(768, 768, bidirectional=True)
         self.classifier = nn.Linear(768, num_labels)
         # self.classifier = nn.Linear(768 * 2, num_labels)
@@ -144,7 +141,6 @@ class BERT_CRF_BiLSTM(nn.Module):
 
         # the CRF layer of NER labels
         crf_loss_list = self.CRF_model(logits, labels)
-        #crf_loss_list = self.CRF_model(lstm_out, labels)
         crf_loss = torch.mean(-crf_loss_list)
         crf_predict = self.CRF_model.decode(logits)
 

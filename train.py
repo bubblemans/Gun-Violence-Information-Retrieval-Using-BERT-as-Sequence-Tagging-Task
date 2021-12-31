@@ -27,7 +27,7 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
     iter_in_one_epoch = len(train_X) // batch_size
 
     # Set up tokenizer and model
-    tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
+    tokenizer = torch.hub.load(TRANSFORMER_PATH, 'tokenizer', 'bert-base-cased') # cased!
     model = None
     if model_type == 'LSTM':
         model = BERT_LSTM(3)
@@ -251,7 +251,7 @@ if __name__ == '__main__':
         )
     else:
         model     = torch.load(args.model)
-        tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
+        tokenizer = torch.hub.load(TRANSFORMER_PATH, 'tokenizer', 'bert-base-cased') # cased!
 
     test_X, test_Y = get_data(args.input_dir + '/test.csv')
     eval_results = evaluate(

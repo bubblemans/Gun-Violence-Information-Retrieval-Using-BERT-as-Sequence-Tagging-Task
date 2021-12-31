@@ -2,7 +2,9 @@ import argparse
 import pandas as pd
 
 
-label_mapping = {
+TRANSFORMER_PATH = 'huggingface/pytorch-transformers'
+
+LABEL_MAPPING = {
     'B': 0,
     'I': 1,
     'O': 2
@@ -51,20 +53,20 @@ def convert_examples_to_features(x_batch, y_batch, tokenizer, max_seq_length):
         for i, token in enumerate(tokens):
             if token.startswith('##'):
                 if labels_org[i - 1 - token_bias_num][0] in ['O', 'I']:
-                    label = label_mapping[labels_org[i - 1 - token_bias_num][0]]
+                    label = LABEL_MAPPING[labels_org[i - 1 - token_bias_num][0]]
                     labels.append(label)
                 else:
                     labels.append(1)  # 1 is I
                 token_bias_num += 1
             else:
                 word_num += 1
-                label = label_mapping[labels_org[i - token_bias_num][0]]
+                label = LABEL_MAPPING[labels_org[i - token_bias_num][0]]
                 labels.append(label)
 
         # manually pad tokens and labels if their lengths are over the max sequence length
         if len(tokens) < max_seq_length:
             tokens += [''] * (max_seq_length - len(tokens))
-            labels += [label_mapping['O']] * (max_seq_length - len(labels))
+            labels += [LABEL_MAPPING['O']] * (max_seq_length - len(labels))
 
         token_batch.append(tokens)
         label_batch.append(labels)

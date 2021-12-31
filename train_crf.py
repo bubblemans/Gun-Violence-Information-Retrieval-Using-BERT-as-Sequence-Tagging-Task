@@ -11,33 +11,10 @@ from torch.utils.data import DataLoader
 
 from models import BERT_CRF_Linear, BERT_CRF_LSTM, BERT_CRF_BiLSTM
 from dataset import GunViolenceDataset
+from utils import *
 
 
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
-
-label_mapping = {
-    'B': 0,
-    'I': 1,
-    'O': 2
-}
-
-
-def _handle_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', default='victim', type=str, required=False, help='Input data directory that contains train.csv and eval.csv')
-    parser.add_argument('--output_dir', default='victim/output', type=str, required=False, help='Output data directory')
-    parser.add_argument('--lr', default=1e-4, type=float, required=False, help='learning rate')
-    parser.add_argument('--cuda_available', default=True, type=bool, required=False, help='decide whether to use GPU')
-    parser.add_argument('--epochs', default=1, type=int, required=False, help='the number of epochs')
-    parser.add_argument('--batch_size', default=1, type=int, required=False, help='the number of batches')
-    parser.add_argument('--max_seq_length', default=256, type=int, required=False, help='the number of max sequence length')
-    parser.add_argument('--model_type', default='Linear', type=str, required=False, help='Linear, LSTM, BiLSTM')
-    parser.add_argument('--model', default='', type=str, required=False, help='path to model')
-    parser.add_argument('--is_balance', default=True, type=bool, required=False, help='choose to use balance data or unbalanced data')
-    parser.add_argument('--patience', default=10, type=int, required=False, help='Number of epochs with no improvement after which training will be stopped')
-    parser.add_argument('--min_delta', default=0, type=float, required=False, help='Minimum change in the monitored quantity to qualify as an improvement')
-    parser.add_argument('--baseline', default=0.0001, type=float, required=False, help='Training will stop if the model doesn\'t show improvement over the baseline')
-    return parser.parse_args()
 
 
 def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, is_balance, batch_size, max_seq_length, patience, min_delta, baseline):
@@ -50,7 +27,7 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
     )
     iter_in_one_epoch = len(train_X) // batch_size
 
-    tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
+    tokenizer = torch.hub.load(TRANSFORMER_PATH, 'tokenizer', 'bert-base-cased') # cased!
     model = None
     if model_type == 'LSTM':
         model = BERT_CRF_LSTM(3)
@@ -119,51 +96,6 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
 
     torch.save(model, 'output/model')
     return model, tokenizer, stopping_epoch
-
-
-def convert_examples_to_features(x_batch, y_batch, tokenizer, max_seq_length):
-    """
-    Convert preprocessed data with tags to BERT's input format
-
-    ex: After preprocessed
-    Text: [", I, am, Alvin, ., "] (original: "I am Alvin.")
-    Tags:  O  O   O    B    O  O
-
-    After converted
-    tokens: [", I, am, Al, ##vin, ., "]
-    labels:  O  O   O   B    I    O  O
-    """
-    token_batch = []
-    label_batch = []
-    for train_x, train_y in zip(x_batch, y_batch):
-        text, labels_org = train_x, train_y.strip().split()[:max_seq_length]
-        tokens = tokenizer.tokenize(text, truncation=True, max_length=max_seq_length)
-
-        labels = []
-        token_bias_num = 0
-        word_num = 0
-        for i, token in enumerate(tokens):
-            if token.startswith('##'):
-                if labels_org[i - 1 - token_bias_num][0] in ['O', 'I']:
-                    label = label_mapping[labels_org[i - 1 - token_bias_num][0]]
-                    labels.append(label)
-                else:
-                    labels.append(1)  # 1 is I
-                token_bias_num += 1
-            else:
-                word_num += 1
-                label = label_mapping[labels_org[i - token_bias_num][0]]
-                labels.append(label)
-
-        # manually pad tokens and labels if their lengths are over the max sequence length
-        if len(tokens) < max_seq_length:
-            tokens += [''] * (max_seq_length - len(tokens))
-            labels += [label_mapping['O']] * (max_seq_length - len(labels))
-
-        token_batch.append(tokens)
-        label_batch.append(labels)
-
-    return token_batch, label_batch
 
 
 def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_size, max_seq_length, model_type, lr, epochs):
@@ -292,13 +224,16 @@ def get_data(filename):
 
 
 if __name__ == '__main__':
-    args = _handle_arguments()
+    args      = handle_arguments()
+    model     = None
+    tokenizer = None
 
-    train_X, train_Y = get_data('victim/train.csv')
-    dev_X, dev_Y = get_data('victim/dev.csv')
-    train_X += dev_X
-    train_Y += dev_Y
-    model, tokenizer, stopping_epoch = train(
+    if not args.model:
+        train_X, train_Y = get_data(args.input_dir + '/train.csv', args.is_balance)
+        dev_X, dev_Y = get_data(args.input_dir + '/dev.csv', args.is_balance)
+        train_X += dev_X
+        train_Y += dev_Y
+        model, tokenizer, stopping_epoch = train(
             train_X, 
             train_Y, 
             args.lr, 
@@ -312,10 +247,11 @@ if __name__ == '__main__':
             args.min_delta,
             args.baseline
         )
-    # model = torch.load('output/model')
-    # tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
+    else:
+        model = torch.load(args.model)
+        tokenizer = torch.hub.load(TRANSFORMER_PATH, 'tokenizer', 'bert-base-cased') # cased!
 
-    test_X, test_Y = get_data('victim/test.csv')
+    test_X, test_Y = get_data(args.input_dir + '/test.csv')
     eval_results = evaluate(
         model, 
         test_X, 
@@ -326,5 +262,6 @@ if __name__ == '__main__':
         args.max_seq_length, 
         args.model_type, 
         args.lr, 
-        stopping_epoch
+        stopping_epoch,
+        args.output_dir
     )
