@@ -452,7 +452,7 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
     precision = num_of_tp/(num_of_tp + num_of_fp) if num_of_tp + num_of_fp != 0 else 0
     recall = num_of_tp/(num_of_tp + num_of_fn) if num_of_tp + num_of_fn != 0 else 0
 
-    with open('shooter/output/crf_{}_{}_{}_{}_{}.txt'.format(model_type, lr, epochs, batch_size, max_seq_length), 'w') as wf:
+    with open('victim/output/crf_{}_{}_{}_{}_{}.txt'.format(model_type, lr, epochs, batch_size, max_seq_length), 'w') as wf:
         wf.write('tp: {}\n'.format(num_of_tp))
         wf.write('tn: {}\n'.format(num_of_tn))
         wf.write('fp: {}\n'.format(num_of_fp))
@@ -484,8 +484,8 @@ def get_data(filename):
 if __name__ == '__main__':
     args = _handle_arguments()
 
-    train_X, train_Y = get_data('shooter/train.csv')
-    dev_X, dev_Y = get_data('shooter/dev.csv')
+    train_X, train_Y = get_data('victim/train.csv')
+    dev_X, dev_Y = get_data('victim/dev.csv')
     train_X += dev_X
     train_Y += dev_Y
     model, tokenizer, stopping_epoch = train(
@@ -505,8 +505,19 @@ if __name__ == '__main__':
     # model = torch.load('output/model')
     # tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
 
-    test_X, test_Y = get_data('shooter/test.csv')
-    eval_results = evaluate(model, test_X, test_Y, tokenizer, args.cuda_available, args.batch_size, args.max_seq_length, args.model, args.lr, args.epochs)
+    test_X, test_Y = get_data('victim/test.csv')
+    eval_results = evaluate(
+        model, 
+        test_X, 
+        test_Y, 
+        tokenizer, 
+        args.cuda_available, 
+        args.batch_size, 
+        args.max_seq_length, 
+        args.model_type, 
+        args.lr, 
+        stopping_epoch
+    )
     # args = _handle_arguments()
 
     # X, Y = get_data('data.csv')

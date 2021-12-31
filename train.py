@@ -103,18 +103,21 @@ def _handle_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', default='victim', type=str, required=False, help='Input data directory that contains train.csv and eval.csv')
     parser.add_argument('--output_dir', default='victim/output', type=str, required=False, help='Output data directory')
-    parser.add_argument('--lr', default=1e-4, type=float, required=True, help='learning rate')
+    parser.add_argument('--lr', default=1e-4, type=float, required=False, help='learning rate')
     parser.add_argument('--cuda_available', default=True, type=bool, required=False, help='decide whether to use GPU')
     parser.add_argument('--epochs', default=1, type=int, required=False, help='the number of epochs')
     parser.add_argument('--batch_size', default=1, type=int, required=False, help='the number of batches')
     parser.add_argument('--max_seq_length', default=256, type=int, required=False, help='the number of max sequence length')
     parser.add_argument('--model_type', default='Linear', type=str, required=False, help='Linear, LSTM, BiLSTM')
-    parser.add_argument('--model', default='', type=str, required=False, help='Linear, LSTM, BiLSTM')
+    parser.add_argument('--model', default='', type=str, required=False, help='path to model')
     parser.add_argument('--is_balance', default=True, type=bool, required=False, help='choose to use balance data or unbalanced data')
+    parser.add_argument('--patience', default=10, type=int, required=False, help='Number of epochs with no improvement after which training will be stopped')
+    parser.add_argument('--min_delta', default=0, type=float, required=False, help='Minimum change in the monitored quantity to qualify as an improvement')
+    parser.add_argument('--baseline', default=0.0001, type=float, required=False, help='Training will stop if the model doesn\'t show improvement over the baseline')
     return parser.parse_args()
 
 
-def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, is_balance, batch_size, max_seq_length):
+def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, is_balance, batch_size, max_seq_length, patience, min_delta, baseline):
 
     training_set = GunViolenceDataset(train_X, train_Y)
     training_generator = DataLoader(
@@ -139,8 +142,12 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     losses = []
+    num_no_improve = 0
+    best_loss = None
+    stopping_epoch = 0
 
     for epoch in range(1, epochs + 1):
+        loss = 0
         with tqdm.tqdm(training_generator, unit="batch") as tepoch:
             for i, (train_x, train_y) in enumerate(tepoch):
                 tepoch.set_description("Epoch {}".format(epoch))
@@ -179,14 +186,22 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
 
                 # update parameters
                 optimizer.step()
+                
+            if not best_loss:
+                best_loss = loss
+            elif loss <= best_loss + min_delta:
+                best_loss = loss
+                num_no_improve += 1
+            elif loss < baseline:
+                num_no_improve += 1
+            if num_no_improve > patience:
+                stopping_epoch = epoch
+                print('Early Stop on epoch {} with the best loss {}'.format(stopping_epoch, best_loss))
+                break
 
     torch.save(model, 'output/model')
 
-    # with open('./data/{}_train_loss.txt'.format(model_type), 'w') as wf:
-    #     for i, loss in losses:
-    #         wf.write(str(i) + ' ' + str(loss) + '\n')
-
-    return model, tokenizer
+    return model, tokenizer, stopping_epoch
 
 
 def convert_examples_to_features(x_batch, y_batch, tokenizer, max_seq_length):
@@ -397,15 +412,40 @@ if __name__ == '__main__':
     model = None
     tokenizer = None
     if args.model == '':
-        train_X, train_Y = get_data(args.input_dir + '/new_train.csv', args.is_balance)
-        dev_X, dev_Y = get_data(args.input_dir + '/new_dev.csv', args.is_balance)
+        train_X, train_Y = get_data(args.input_dir + '/train.csv', args.is_balance)
+        dev_X, dev_Y = get_data(args.input_dir + '/dev.csv', args.is_balance)
         train_X += dev_X
         train_Y += dev_Y
-        model, tokenizer = train(train_X, train_Y, args.lr, args.cuda_available, args.epochs, args.model_type, args.is_balance, args.batch_size, args.max_seq_length)
+        model, tokenizer, stopping_epoch = train(
+            train_X, 
+            train_Y, 
+            args.lr, 
+            args.cuda_available, 
+            args.epochs, 
+            args.model_type, 
+            args.is_balance, 
+            args.batch_size, 
+            args.max_seq_length,
+            args.patience,
+            args.min_delta,
+            args.baseline
+        )
     else:
         model = torch.load(args.model)
         tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
 
 
-    test_X, test_Y = get_data(args.input_dir + '/new_test.csv')
-    eval_results = evaluate(model, test_X, test_Y, tokenizer, args.cuda_available, args.batch_size, args.max_seq_length, args.model_type, args.lr, args.epochs, args.output_dir)
+    test_X, test_Y = get_data(args.input_dir + '/test.csv')
+    eval_results = evaluate(
+        model, 
+        test_X, 
+        test_Y, 
+        tokenizer, 
+        args.cuda_available, 
+        args.batch_size, 
+        args.max_seq_length, 
+        args.model_type, 
+        args.lr, 
+        stopping_epoch, 
+        args.output_dir
+    )
