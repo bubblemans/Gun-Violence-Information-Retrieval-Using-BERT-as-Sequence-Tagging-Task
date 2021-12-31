@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 from models import BERT_Linear, BERT_LSTM, BERT_BiLSTM
+from dataset import GunViolenceDataset
 
 
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -20,17 +21,6 @@ label_mapping = {
     'I': 1,
     'O': 2
 }
-
-class GunViolenceDataset(Dataset):
-    def __init__(self, texts, labels):
-        self.texts = texts
-        self.labels = labels
-
-    def __len__(self):
-        return len(self.labels)
-
-    def __getitem__(self, index):
-        return self.texts[index], self.labels[index]
 
 
 def _handle_arguments():

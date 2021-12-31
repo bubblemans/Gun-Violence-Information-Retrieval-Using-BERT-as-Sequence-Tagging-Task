@@ -8,9 +8,9 @@ import tqdm
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
 
 from models import BERT_CRF_Linear, BERT_CRF_LSTM, BERT_CRF_BiLSTM
+from dataset import GunViolenceDataset
 
 
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -20,17 +20,6 @@ label_mapping = {
     'I': 1,
     'O': 2
 }
-
-class GunViolenceDataset(Dataset):
-    def __init__(self, texts, labels):
-        self.texts = texts
-        self.labels = labels
-
-    def __len__(self):
-        return len(self.labels)
-
-    def __getitem__(self, index):
-        return self.texts[index], self.labels[index]
 
 
 def _handle_arguments():
@@ -201,7 +190,6 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
         shuffle=True,
     )
     num_of_tp = num_of_fn = num_of_fp = num_of_tn = 0
-    # losses = []
 
     for i, (evaluate_x, evaluate_y) in enumerate(evaluate_generator):
         tokens, labels = convert_examples_to_features(evaluate_x, evaluate_y, tokenizer, max_seq_length)
@@ -234,11 +222,6 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
                         index += 1
                     break
             original = original.strip()
-            # original = ''
-            # for x, y in zip(evaluate_x[0].split(), evaluate_y[0].split()):
-            #     if y[0] in ['B', 'I']:
-            #         original += '{} '.format(x)
-            # original = original.strip()
 
             probabilities = []
             predictions = []
@@ -299,13 +282,6 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
         wf.write('recall: {}\n'.format(recall))
         f1 = 2 * precision * recall / (precision + recall) if precision + recall != 0 else 0
         wf.write('F1: {}\n'.format(f1))
-
-    if accuracy != 0:
-        ACCURACY.append(accuracy)
-    if precision != 0:
-        PRECISION.append(precision)
-    if recall != 0:
-        RECALL.append(recall)
 
 
 def get_data(filename):
