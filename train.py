@@ -1,32 +1,23 @@
 import argparse
-import os
 import math
+import logging
 
 import pandas as pd
 import tqdm
-
-from sklearn.model_selection import KFold
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
-from transformers import AutoTokenizer
-from tokenizers import pre_tokenizers
-from tokenizers.pre_tokenizers import Whitespace, Digits
 
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 label_mapping = {
     'B': 0,
     'I': 1,
     'O': 2
 }
-
-ACCURACY = []
-PRECISION = []
-RECALL = []
-
 
 class GunViolenceDataset(Dataset):
     def __init__(self, texts, labels):
@@ -72,7 +63,6 @@ class BERT_LSTM(nn.Module):
         pooler_output = bert_output.pooler_output
 
         lstm_out, _ = self.lstm(last_hidden_state)
-
         logits = self.classifier(lstm_out)
         return logits
 
@@ -94,7 +84,6 @@ class BERT_BiLSTM(nn.Module):
 
         lstm_out, _ = self.lstm(last_hidden_state)
         lstm_out = lstm_out[:, :, :768] + lstm_out[:, :, 768:]
-
         logits = self.classifier(lstm_out)
         return logits
 
@@ -103,11 +92,11 @@ def _handle_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', default='victim', type=str, required=False, help='Input data directory that contains train.csv and eval.csv')
     parser.add_argument('--output_dir', default='victim/output', type=str, required=False, help='Output data directory')
-    parser.add_argument('--lr', default=1e-4, type=float, required=False, help='learning rate')
-    parser.add_argument('--cuda_available', default=True, type=bool, required=False, help='decide whether to use GPU')
-    parser.add_argument('--epochs', default=1, type=int, required=False, help='the number of epochs')
-    parser.add_argument('--batch_size', default=1, type=int, required=False, help='the number of batches')
-    parser.add_argument('--max_seq_length', default=256, type=int, required=False, help='the number of max sequence length')
+    parser.add_argument('--lr', default=1e-4, type=float, required=False, help='Learning rate')
+    parser.add_argument('--cuda_available', default=True, type=bool, required=False, help='Decide whether to use GPU')
+    parser.add_argument('--epochs', default=1, type=int, required=False, help='Number of epochs')
+    parser.add_argument('--batch_size', default=1, type=int, required=False, help='Number of batches')
+    parser.add_argument('--max_seq_length', default=256, type=int, required=False, help='Number of max sequence length')
     parser.add_argument('--model_type', default='Linear', type=str, required=False, help='Linear, LSTM, BiLSTM')
     parser.add_argument('--model', default='', type=str, required=False, help='path to model')
     parser.add_argument('--is_balance', default=True, type=bool, required=False, help='choose to use balance data or unbalanced data')
@@ -119,6 +108,7 @@ def _handle_arguments():
 
 def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, is_balance, batch_size, max_seq_length, patience, min_delta, baseline):
 
+    # Set up DataLoader for populating batches later
     training_set = GunViolenceDataset(train_X, train_Y)
     training_generator = DataLoader(
         training_set,
@@ -127,6 +117,7 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
     )
     iter_in_one_epoch = len(train_X) // batch_size
 
+    # Set up tokenizer and model
     tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
     model = None
     if model_type == 'LSTM':
@@ -135,11 +126,11 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
         model = BERT_BiLSTM(3)
     else:
         model = BERT_Linear(3)  # 3 different labels: B, I, O
-
     if cuda_available:
         model.to('cuda')  # move data onto GPU
-
     model.train()
+
+    # Set up variables
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     losses = []
     num_no_improve = 0
@@ -187,7 +178,9 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
                 # update parameters
                 optimizer.step()
                 
+            # early stop
             if not best_loss:
+                # first iteration
                 best_loss = loss
             elif loss <= best_loss + min_delta:
                 best_loss = loss
@@ -196,7 +189,7 @@ def train(train_X, train_Y, learning_rate, cuda_available, epochs, model_type, i
                 num_no_improve += 1
             if num_no_improve > patience:
                 stopping_epoch = epoch
-                print('Early Stop on epoch {} with the best loss {}'.format(stopping_epoch, best_loss))
+                logging.info('Early Stop on epoch {} with the best loss {}'.format(stopping_epoch, best_loss))
                 break
 
     torch.save(model, 'output/model')
@@ -273,7 +266,6 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
         shuffle=True,
     )
     num_of_tp = num_of_fn = num_of_fp = num_of_tn = 0
-    # losses = []
 
     for i, (evaluate_x, evaluate_y) in enumerate(evaluate_generator):
         tokens, labels = convert_examples_to_features(evaluate_x, evaluate_y, tokenizer, max_seq_length)
@@ -292,7 +284,6 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
 
         with torch.no_grad():
             y_pred = model(tokens_tensor, segments_tensors, labels)
-            y_pred_for_loss = y_pred.permute(0, 2, 1)
             y_pred = y_pred[0]  # because batch size is 1, we just take the 1st row
             normalized_probs = nn.functional.softmax(y_pred, dim=1)
             results = _get_prediction(normalized_probs)
@@ -308,11 +299,6 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
                         index += 1
                     break
             original = original.strip()
-            # original = ''
-            # for x, y in zip(evaluate_x[0].split(), evaluate_y[0].split()):
-            #     if y[0] in ['B', 'I']:
-            #         original += '{} '.format(x)
-            # original = original.strip()
 
             probabilities = []
             predictions = []
@@ -345,9 +331,6 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
             result = ''
             if len(predictions) != 0:
                 result = tokenizer.convert_tokens_to_string(predictions[max_prob_ind])
-                # print('original:', original)
-                # print('result:', result)
-                # print()
                 if result == original:
                     num_of_tp += 1
                 else:
@@ -358,14 +341,11 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
                 else:
                     num_of_tn += 1
 
-            # loss_fct = nn.CrossEntropyLoss()
-            # loss = loss_fct(y_pred_for_loss, labels)
-            # losses.append((epoch + i / iter_in_one_epoch, loss.item()))
-
     accuracy = (num_of_tp + num_of_tn) /num_samples if num_samples != 0 else 0
     precision = num_of_tp/(num_of_tp + num_of_fp) if num_of_tp + num_of_fp != 0 else 0
     recall = num_of_tp/(num_of_tp + num_of_fn) if num_of_tp + num_of_fn != 0 else 0
 
+    # write predicted results to output file
     with open(output_dir + '/{}_{}_{}_{}_{}.txt'.format(model_type, lr, epochs, batch_size, max_seq_length), 'w') as wf:
         wf.write('tp: {}\n'.format(num_of_tp))
         wf.write('tn: {}\n'.format(num_of_tn))
@@ -380,14 +360,8 @@ def evaluate(model, evaluate_X, evaluate_Y, tokenizer, cuda_available, batch_siz
         f1 = 2 * precision * recall / (precision + recall) if precision + recall != 0 else 0
         wf.write('F1: {}\n'.format(f1))
 
-    if accuracy != 0:
-        ACCURACY.append(accuracy)
-    if precision != 0:
-        PRECISION.append(precision)
-    if recall != 0:
-        RECALL.append(recall)
 
-
+# loading data from input file
 def get_data(filename, balanced=False):
     df = pd.read_csv(filename)
     texts = df['texts'].tolist()
@@ -397,21 +371,20 @@ def get_data(filename, balanced=False):
         new_texts = list(texts)
         new_labels = list(labels)
         for text, label in zip(texts, labels):
-            if 'B-SHOOTER' in label:
+            if 'B' in label:
                 new_texts += [text] * 9
                 new_labels += [label] * 9
         return new_texts, new_labels
-
 
     return texts, labels
 
 
 if __name__ == '__main__':
-    args = _handle_arguments()
-
-    model = None
+    args      = _handle_arguments()
+    model     = None
     tokenizer = None
-    if args.model == '':
+
+    if not args.model:
         train_X, train_Y = get_data(args.input_dir + '/train.csv', args.is_balance)
         dev_X, dev_Y = get_data(args.input_dir + '/dev.csv', args.is_balance)
         train_X += dev_X
@@ -431,9 +404,8 @@ if __name__ == '__main__':
             args.baseline
         )
     else:
-        model = torch.load(args.model)
+        model     = torch.load(args.model)
         tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'bert-base-cased') # cased!
-
 
     test_X, test_Y = get_data(args.input_dir + '/test.csv')
     eval_results = evaluate(
